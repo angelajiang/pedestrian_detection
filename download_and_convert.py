@@ -17,6 +17,8 @@ import cv2 as cv
 import numpy as np
 import struct
 
+from lxml import etree as ET
+
 data_dir   = os.getcwd() + '/data'
 save_dir   = os.getcwd() + '/output'
 web_url    = 'http://www.vision.caltech.edu/Image_Datasets/CaltechPedestrians/datasets/USA'
@@ -26,8 +28,8 @@ display    = False
 MIN_WIDTH  = 15
 MIN_HEIGHT = 15
 # sample width and height for training
-P_WIDTH    = 32
-P_HEIGHT   = 64
+P_WIDTH    = 640
+P_HEIGHT   = 480
 DEPTH      = 3
 
 """
@@ -157,7 +159,8 @@ if __name__=="__main__":
                     # get path of each .seq file
                     filepath = os.path.join(parent, filename)
                     # create saving directory for each seq file
-                    save_seq_dir = ''.join([save_dir, '/', setname, '/', filename.split('.')[0]])
+                    #save_seq_dir = ''.join([save_dir, '/', filename.split('.')[0]])
+                    save_seq_dir = ''.join([save_dir, '/', "images"])
                     if not os.path.exists(save_seq_dir):
                         os.makedirs(save_seq_dir)
                     objList, objLbl, err = load_annotation(setname, filename)
@@ -175,6 +178,15 @@ if __name__=="__main__":
                             img_draw = img.copy()
                         # check if the frame contains object
                         if len(objList[frame_n]):
+
+                            # write out annotation and image size
+                            root = ET.Element("annotation")
+                            size = ET.SubElement(root, "size")
+                            ET.SubElement(size, "width").text = str(img_width)
+                            ET.SubElement(size, "height").text = str(img_height)
+                            ET.SubElement(size, "depth").text = "3"
+                            ET.SubElement(root, "segmentation").text = "0"
+
                             # retrieve annotated objects
                             objects = objList[frame_n][0]
                             for id, pos, posv, occl in zip(objects['id'], objects['pos'],
@@ -191,11 +203,40 @@ if __name__=="__main__":
                                     pos[1] = 0 if pos[1] < 0 else pos[1]
                                     pos[2] = img_width-pos[0] if pos[0]+pos[2] > img_width else pos[2]
                                     pos[3] = img_height-pos[1] if pos[1]+pos[3] > img_height else pos[3]
+                                    xmin = pos[0]
+                                    xmax = pos[2]
+                                    ymin = pos[1]
+                                    ymax = pos[3]
+                                    print("xmin:{}, xmax:{}, ymin:{}, ymax:{}".format(xmin,
+                                                                                      xmax,
+                                                                                      ymin,
+                                                                                      ymax))
+
+                                    # Write out object / name pose truncated, difficult bndbox
+                                    # / xmin, ymin, xmax, ymax
+                                    obj = ET.SubElement(root, "object")
+                                    ET.SubElement(obj, "name").text = "pedestrian"
+                                    ET.SubElement(obj, "pose").text = "unspecified"
+                                    ET.SubElement(obj, "truncated").text = "0"
+                                    ET.SubElement(obj, "difficult").text = "0"
+                                    bb = ET.SubElement(obj, "bndbox")
+                                    ET.SubElement(bb, "xmin").text = str(xmin)
+                                    ET.SubElement(bb, "xmax").text = str(xmax)
+                                    ET.SubElement(bb, "ymin").text = str(ymin)
+                                    ET.SubElement(bb, "ymax").text = str(ymax)
+
                                     # crop person from the image
                                     patch = img[pos[1]:pos[1]+pos[3], pos[0]:pos[0]+pos[2]]
                                     if resize:
-                                        patch = cv.resize(patch, (P_WIDTH, P_HEIGHT), cv.INTER_CUBIC)
+                                        patch = cv.resize(patch, (P_HEIGHT, P_WIDTH), cv.INTER_CUBIC)
                                     save_name = os.path.join(save_seq_dir, "%04d.jpg" % patch_n)
+
+                                    # Save annotation
+                                    annot_dir = ''.join([save_dir, '/annotations/'])
+                                    annot_name = os.path.join(annot_dir, "%04d.xml" % patch_n)
+                                    tree = ET.ElementTree(root)
+                                    tree.write(annot_name, pretty_print=True)
+
                                     # seperate record string with '1' as a label for 'person'
                                     record_str.write('1')
                                     record_str.write(patch.tostring())
@@ -209,6 +250,6 @@ if __name__=="__main__":
                                 cv.destroyAllWindows()
                                 exit()
                         frame_n += 1
-            save_records(record_str.getvalue(), ''.join([save_dir, '/', setname, '.bin']))
+            #save_records(record_str.getvalue(), ''.join([save_dir, '/', setname, '.bin']))
     print('Total %d positive samples are extracted '
           'from %d frames.' % (total_patches, total_frames))
